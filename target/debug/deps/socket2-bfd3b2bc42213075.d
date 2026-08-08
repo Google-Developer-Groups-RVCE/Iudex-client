@@ -1,0 +1,11 @@
+/home/azureglades/Coding/OpenSource/Client/target/debug/deps/socket2-bfd3b2bc42213075.d: /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/lib.rs /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/sockaddr.rs /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/socket.rs /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/sockref.rs /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/sys/unix.rs
+
+/home/azureglades/Coding/OpenSource/Client/target/debug/deps/libsocket2-bfd3b2bc42213075.rlib: /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/lib.rs /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/sockaddr.rs /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/socket.rs /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/sockref.rs /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/sys/unix.rs
+
+/home/azureglades/Coding/OpenSource/Client/target/debug/deps/libsocket2-bfd3b2bc42213075.rmeta: /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/lib.rs /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/sockaddr.rs /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/socket.rs /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/sockref.rs /home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/sys/unix.rs
+
+/home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/lib.rs:
+/home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/sockaddr.rs:
+/home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/socket.rs:
+/home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/sockref.rs:
+/home/azureglades/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.5/src/sys/unix.rs:
