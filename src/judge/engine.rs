@@ -24,22 +24,20 @@ impl JudgeEngine {
         let temp_dir = TempDir::new()?;
         let work_path = temp_dir.path();
 
-        let source_filename = language.source_filename();
-        let source_path = work_path.join(source_filename);
-        std::fs::write(&source_path, source_code)?;
-
+        std::fs::write(language.source_path(work_path), source_code)?;
         info!("Created workspace at {:?}", work_path);
 
-        let compilation_res = Compiler::compile(config, language, &source_path, work_path).await?;
+        // `None` means the language has no compile step, and is exactly what
+        // belongs in `SubmissionResult::compilation` for interpreted languages.
+        let compilation = Compiler::compile(config, language, work_path).await?;
 
-        if !compilation_res.success {
-            let telemetry = Self::collect_telemetry(config, language);
+        if compilation.as_ref().is_some_and(|c| !c.success) {
             return Ok(SubmissionResult {
                 problem_id: problem_id.to_string(),
                 language: language.name().to_string(),
-                compilation: Some(compilation_res),
+                compilation,
                 test_results: vec![],
-                telemetry,
+                telemetry: Self::collect_telemetry(config, language),
             });
         }
 
@@ -51,7 +49,6 @@ impl JudgeEngine {
             let result = ProcessRunner::run_test_case(
                 config,
                 language,
-                &source_path,
                 work_path,
                 &test.id,
                 &test.input_data,
@@ -61,19 +58,13 @@ impl JudgeEngine {
             test_results.push(result);
         }
 
-        let telemetry = Self::collect_telemetry(config, language);
-
         // temp_dir automatically cleans up here!
         Ok(SubmissionResult {
             problem_id: problem_id.to_string(),
             language: language.name().to_string(),
-            compilation: if language.needs_compilation() {
-                Some(compilation_res)
-            } else {
-                None
-            },
+            compilation,
             test_results,
-            telemetry,
+            telemetry: Self::collect_telemetry(config, language),
         })
     }
 
@@ -87,23 +78,21 @@ impl JudgeEngine {
         let temp_dir = TempDir::new()?;
         let work_path = temp_dir.path();
 
-        let target_source_path = work_path.join(language.source_filename());
-        std::fs::copy(source_path, &target_source_path)?;
+        std::fs::copy(source_path, language.source_path(work_path))?;
 
-        let compilation_res = Compiler::compile(config, language, &target_source_path, work_path).await?;
-
-        if !compilation_res.success {
-            return Err(ClientError::CompilationFailed {
-                stdout: compilation_res.stdout,
-                stderr: compilation_res.stderr,
-            });
+        if let Some(compilation) = Compiler::compile(config, language, work_path).await? {
+            if !compilation.success {
+                return Err(ClientError::CompilationFailed {
+                    stdout: compilation.stdout,
+                    stderr: compilation.stderr,
+                });
+            }
         }
 
         let effective_timeout = timeout_ms.unwrap_or(config.default_timeout_ms);
         ProcessRunner::run_test_case(
             config,
             language,
-            &target_source_path,
             work_path,
             "local_run",
             input_data,

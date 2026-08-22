@@ -16,16 +16,15 @@ impl ProcessRunner {
     pub async fn run_test_case(
         config: &Config,
         language: Language,
-        source_path: &Path,
         work_dir: &Path,
         test_case_id: &str,
         input: &str,
         timeout_ms: u64,
     ) -> Result<TestResult> {
-        let (cmd_bin, args) = language.execute_command(config, source_path, work_dir);
+        let invocation = language.execute(config, work_dir);
 
-        let mut child = Command::new(&cmd_bin)
-            .args(&args)
+        let mut child = Command::new(&invocation.program)
+            .args(&invocation.args)
             .current_dir(work_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

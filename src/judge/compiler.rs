@@ -11,35 +11,32 @@ use crate::languages::Language;
 pub struct Compiler;
 
 impl Compiler {
+    /// Returns `Ok(None)` when the language has no compile step at all, which is
+    /// the single source of truth for "was this compiled?".
     pub async fn compile(
         config: &Config,
         language: Language,
-        source_path: &Path,
         work_dir: &Path,
-    ) -> Result<CompilationResult> {
-        let (cmd_bin, args) = match language.compile_command(config, source_path, work_dir) {
-            Some(cmd) => cmd,
-            None => {
-                return Ok(CompilationResult {
-                    success: true,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                    duration_ms: 0,
-                });
-            }
+    ) -> Result<Option<CompilationResult>> {
+        let Some(invocation) = language.compile(config, work_dir) else {
+            return Ok(None);
         };
 
-        info!("Compiling with command: {} {}", cmd_bin, args.join(" "));
+        info!(
+            "Compiling with command: {} {}",
+            invocation.program,
+            invocation.args.join(" ")
+        );
         let start = Instant::now();
 
-        let child = Command::new(&cmd_bin)
-            .args(&args)
+        let child = Command::new(&invocation.program)
+            .args(&invocation.args)
             .current_dir(work_dir)
             .output()
             .await
             .map_err(|_e| ClientError::CompilerNotFound {
                 language: language.name().to_string(),
-                binary: cmd_bin.clone(),
+                binary: invocation.program.clone(),
             })?;
 
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -53,11 +50,11 @@ impl Compiler {
             info!("Compilation succeeded in {}ms", duration_ms);
         }
 
-        Ok(CompilationResult {
+        Ok(Some(CompilationResult {
             success,
             stdout,
             stderr,
             duration_ms,
-        })
+        }))
     }
 }

@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use std::str::FromStr;
 use tracing_subscriber::EnvFilter;
 
 use cp_client::api::client::ApiClient;
