@@ -1,11 +1,13 @@
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use tracing_subscriber::EnvFilter;
 
 use cp_client::api::client::ApiClient;
 use cp_client::api::models::SubmissionPayload;
 use cp_client::config::Config;
 use cp_client::contest::manager::ContestManager;
+use cp_client::error::{Context, Result};
 use cp_client::judge::engine::JudgeEngine;
 use cp_client::languages::Language;
 use cp_client::mock_server::run_mock_server;
@@ -66,6 +68,10 @@ enum Commands {
         /// Execution timeout limit in milliseconds
         #[arg(short, long)]
         timeout: Option<u64>,
+
+        /// Address-space limit in MB. 0 disables it.
+        #[arg(short, long)]
+        memory: Option<u64>,
     },
 
     /// Execute submission locally against problem test inputs and submit results to server
@@ -84,6 +90,10 @@ enum Commands {
         /// Execution timeout limit in milliseconds
         #[arg(short, long)]
         timeout: Option<u64>,
+
+        /// Address-space limit in MB. 0 disables it.
+        #[arg(short, long)]
+        memory: Option<u64>,
     },
 
     /// Start a local mock contest server for development and testing
@@ -95,13 +105,21 @@ enum Commands {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env().add_directive(tracing::Level::WARN.into()))
         .init();
 
-    let cli = Cli::parse();
-    let mut config = Config::load().unwrap_or_default();
+    // Single exit path: every command reports failure by returning an error,
+    // rather than each one deciding between `exit(1)` and `?`.
+    if let Err(err) = run(Cli::parse()).await {
+        eprintln!("Error: {}", err);
+        std::process::exit(1);
+    }
+}
+
+async fn run(cli: Cli) -> Result<()> {
+    let mut config = Config::load_or_create().context("Could not load configuration")?;
 
     match cli.command {
         Commands::Login {
@@ -109,80 +127,76 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             username,
             password,
         } => {
-            println!("🔑 Logging into server {} as '{}'...", server, username);
+            println!("Logging into server {} as '{}'...", server, username);
             config.server_url = server;
-            let api = ApiClient::new(&config);
 
-            match api.login(&username, &password).await {
-                Ok(resp) => {
-                    config.auth_token = Some(resp.token.clone());
-                    config.username = Some(resp.username.clone());
-                    config.save()?;
-                    println!("✅ Login successful! Session saved for user '{}'.", resp.username);
-                }
-                Err(err) => {
-                    eprintln!("❌ Login failed: {}", err);
-                    std::process::exit(1);
-                }
-            }
+            let api = ApiClient::new(&config);
+            let response = api
+                .login(&username, &password)
+                .await
+                .context("Login failed")?;
+
+            config.auth_token = Some(response.token);
+            config.username = Some(response.username.clone());
+            config.save().context("Could not save session")?;
+            println!("Login successful. Session saved for user '{}'.", response.username);
         }
 
         Commands::Contests => {
             let manager = ContestManager::new(&config)?;
-            match manager.list_contests().await {
-                Ok(contests) => {
-                    println!("\n🏆 Available Contests:");
-                    println!("{:<15} {:<30} {:<20}", "CONTEST ID", "TITLE", "PROBLEMS");
-                    println!("{}", "-".repeat(68));
-                    for c in contests {
-                        println!("{:<15} {:<30} {:<20}", c.id, c.title, c.problems.len());
-                    }
-                }
-                Err(err) => {
-                    eprintln!("❌ Failed to list contests: {}", err);
-                    std::process::exit(1);
-                }
+            let contests = manager
+                .list_contests()
+                .await
+                .context("Failed to list contests")?;
+
+            println!("\nAvailable Contests:");
+            println!("{:<15} {:<30} {:<20}", "CONTEST ID", "TITLE", "PROBLEMS");
+            println!("{}", "-".repeat(68));
+            for contest in contests {
+                println!(
+                    "{:<15} {:<30} {:<20}",
+                    contest.id,
+                    contest.title,
+                    contest.problems.len()
+                );
             }
         }
 
         Commands::Contest { id } => {
             let manager = ContestManager::new(&config)?;
-            match manager.get_contest(&id).await {
-                Ok(contest) => {
-                    println!("\n📌 Contest Details: {}", contest.title);
-                    println!("ID: {}", contest.id);
-                    println!("Description: {}", contest.description);
-                    println!("\nProblems:");
-                    println!("{:<10} {:<30} {:<10}", "PROBLEM", "TITLE", "SCORE");
-                    println!("{}", "-".repeat(52));
-                    for p in contest.problems {
-                        println!("{:<10} {:<30} {:<10}", p.id, p.title, p.score);
-                    }
-                }
-                Err(err) => {
-                    eprintln!("❌ Failed to fetch contest: {}", err);
-                    std::process::exit(1);
-                }
+            let contest = manager
+                .get_contest(&id)
+                .await
+                .context("Failed to fetch contest")?;
+
+            println!("\nContest Details: {}", contest.title);
+            println!("ID: {}", contest.id);
+            println!("Description: {}", contest.description);
+            println!("\nProblems:");
+            println!("{:<10} {:<30} {:<10}", "PROBLEM", "TITLE", "SCORE");
+            println!("{}", "-".repeat(52));
+            for problem in contest.problems {
+                println!("{:<10} {:<30} {:<10}", problem.id, problem.title, problem.score);
             }
         }
 
         Commands::Problem { id } => {
             let manager = ContestManager::new(&config)?;
-            match manager.get_problem(&id).await {
-                Ok(prob) => {
-                    println!("\n📄 Problem {}", prob.title);
-                    println!("{}", "=".repeat(60));
-                    println!("Statement:\n{}\n", prob.statement);
-                    println!("Input Specification:\n{}", prob.input_spec);
-                    println!("Output Specification:\n{}", prob.output_spec);
-                    println!("Constraints: {}", prob.constraints);
-                    println!("Time Limit: {} ms | Memory Limit: {} MB", prob.time_limit_ms, prob.memory_limit_mb);
-                }
-                Err(err) => {
-                    eprintln!("❌ Failed to fetch problem: {}", err);
-                    std::process::exit(1);
-                }
-            }
+            let problem = manager
+                .fetch_problem(&id)
+                .await
+                .context("Failed to fetch problem")?;
+
+            println!("\nProblem {}", problem.title);
+            println!("{}", "=".repeat(60));
+            println!("Statement:\n{}\n", problem.statement);
+            println!("Input Specification:\n{}", problem.input_spec);
+            println!("Output Specification:\n{}", problem.output_spec);
+            println!("Constraints: {}", problem.constraints);
+            println!(
+                "Time Limit: {} ms | Memory Limit: {} MB",
+                problem.time_limit_ms, problem.memory_limit_mb
+            );
         }
 
         Commands::Run {
@@ -190,43 +204,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             lang,
             input,
             timeout,
+            memory,
         } => {
-            let language = match lang {
-                Some(l) => Language::from_str(&l)?,
-                None => Language::from_extension(&source)?,
-            };
+            let language = resolve_language(lang.as_deref(), &source)?;
+            let input_data = read_input(input.as_deref())?;
 
-            let input_data = match input {
-                Some(path) => std::fs::read_to_string(path)?,
-                None => {
-                    use std::io::Read;
-                    println!("Enter test input (press Ctrl+D when finished):");
-                    let mut buffer = String::new();
-                    std::io::stdin().read_to_string(&mut buffer)?;
-                    buffer
-                }
-            };
+            println!("Compiling and executing locally ({}) ...", language.name());
+            let result =
+                JudgeEngine::run_local_single(&config, language, &source, &input_data, timeout, memory)
+                    .await
+                    .context("Local execution error")?;
 
-            println!("⚡ Compiling and executing locally ({}) ...", language.name());
-            match JudgeEngine::run_local_single(&config, language, &source, &input_data, timeout).await {
-                Ok(result) => {
-                    println!("\n--- Execution Result ---");
-                    println!("Status: {:?}", result.status);
-                    println!("Duration: {} ms", result.duration_ms);
-                    if let Some(code) = result.exit_code {
-                        println!("Exit Code: {}", code);
-                    }
-                    println!("\n--- STDOUT ---");
-                    print!("{}", result.stdout);
-                    if !result.stderr.is_empty() {
-                        println!("\n--- STDERR ---");
-                        print!("{}", result.stderr);
-                    }
-                }
-                Err(err) => {
-                    eprintln!("❌ Local execution error: {}", err);
-                    std::process::exit(1);
-                }
+            println!("\n--- Execution Result ---");
+            println!("Status: {:?}", result.status);
+            println!("Duration: {} ms", result.duration_ms);
+            if let Some(code) = result.exit_code {
+                println!("Exit Code: {}", code);
+            }
+            println!("\n--- STDOUT ---");
+            print!("{}", result.stdout);
+            if !result.stderr.is_empty() {
+                println!("\n--- STDERR ---");
+                print!("{}", result.stderr);
             }
         }
 
@@ -235,41 +234,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             problem,
             lang,
             timeout,
+            memory,
         } => {
-            let language = match lang {
-                Some(l) => Language::from_str(&l)?,
-                None => Language::from_extension(&source)?,
-            };
-
-            let source_code = std::fs::read_to_string(&source)?;
+            let language = resolve_language(lang.as_deref(), &source)?;
+            let source_code =
+                std::fs::read_to_string(&source).context("Could not read source file")?;
             let manager = ContestManager::new(&config)?;
 
-            println!("📥 Downloading test inputs for problem '{}' from server...", problem);
-            let test_inputs = match manager.fetch_test_inputs(&problem).await {
-                Ok(inputs) => inputs,
-                Err(err) => {
-                    eprintln!("❌ Failed to download test inputs: {}", err);
-                    std::process::exit(1);
-                }
-            };
+            println!("Downloading problem '{}' from server...", problem);
+            let problem_meta = manager
+                .fetch_problem(&problem)
+                .await
+                .context("Failed to fetch problem metadata")?;
+
+            let test_inputs = manager
+                .fetch_test_inputs(&problem)
+                .await
+                .context("Failed to download test inputs")?;
+
+            // Precedence: an explicit flag, else the problem's own limits from
+            // the server, else the config defaults. Judging every problem at the
+            // client default silently ignores the limits the problem declares.
+            let effective_timeout = timeout.or(Some(problem_meta.time_limit_ms));
+            let effective_memory = memory.or(Some(problem_meta.memory_limit_mb));
 
             println!(
-                "⚡ Executing submission locally across {} test case(s) ({}) ...",
+                "Executing submission locally across {} test case(s) ({}), limits {} ms / {} MB ...",
                 test_inputs.len(),
-                language.name()
+                language.name(),
+                effective_timeout.unwrap_or(config.default_timeout_ms),
+                effective_memory.unwrap_or(config.default_memory_limit_mb),
             );
-
             let submission_result = JudgeEngine::execute_submission(
                 &config,
                 &problem,
                 language,
                 &source_code,
                 &test_inputs,
-                timeout,
+                effective_timeout,
+                effective_memory,
             )
-            .await?;
+            .await
+            .context("Local execution error")?;
 
-            println!("📤 Submitting local outputs to server for authoritative verification...");
+            println!("Submitting local outputs to server for authoritative verification...");
             let api = ApiClient::new(&config);
             let payload = SubmissionPayload {
                 problem_id: problem,
@@ -278,20 +286,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 result: submission_result,
             };
 
-            match api.submit_result(&payload).await {
-                Ok(verdict) => {
-                    println!("\n==========================================");
-                    println!("🏆 AUTHORITATIVE VERDICT: {:?}", verdict.verdict);
-                    println!("==========================================");
-                    println!("Submission ID: {}", verdict.submission_id);
-                    println!("Test Cases Passed: {} / {}", verdict.passed_test_cases, verdict.total_test_cases);
-                    println!("Details: {}", verdict.message);
-                }
-                Err(err) => {
-                    eprintln!("❌ Submission error: {}", err);
-                    std::process::exit(1);
-                }
-            }
+            let verdict = api
+                .submit_result(&payload)
+                .await
+                .context("Submission error")?;
+
+            println!("\n==========================================");
+            println!("AUTHORITATIVE VERDICT: {:?}", verdict.verdict);
+            println!("==========================================");
+            println!("Submission ID: {}", verdict.submission_id);
+            println!(
+                "Test Cases Passed: {} / {}",
+                verdict.passed_test_cases, verdict.total_test_cases
+            );
+            println!("Details: {}", verdict.message);
         }
 
         Commands::MockServer { port } => {
@@ -300,4 +308,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn resolve_language(lang: Option<&str>, source: &Path) -> Result<Language> {
+    match lang {
+        Some(name) => Language::from_str(name),
+        None => Language::from_extension(source),
+    }
+}
+
+fn read_input(input: Option<&Path>) -> Result<String> {
+    match input {
+        Some(path) => std::fs::read_to_string(path).context("Could not read input file"),
+        None => {
+            use std::io::Read;
+            println!("Enter test input (press Ctrl+D when finished):");
+            let mut buffer = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buffer)
+                .context("Could not read stdin")?;
+            Ok(buffer)
+        }
+    }
 }

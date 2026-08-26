@@ -4,7 +4,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::info;
@@ -13,7 +13,7 @@ use crate::api::models::{
     AuthoritativeVerdict, Contest, LoginRequest, LoginResponse, Problem, ProblemSummary, SubmissionPayload,
     TestInput, VerdictStatus,
 };
-use crate::judge::result::LocalExecutionStatus;
+use crate::judge::result::{CompilationResult, LocalExecutionStatus};
 
 struct MockProblemState {
     problem: Problem,
@@ -129,7 +129,7 @@ impl AppState {
     }
 }
 
-pub async fn run_mock_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run_mock_server(port: u16) -> crate::error::Result<()> {
     let state = AppState::new();
 
     let app = Router::new()
@@ -143,7 +143,7 @@ pub async fn run_mock_server(port: u16) -> Result<(), Box<dyn std::error::Error>
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     info!("Starting Mock Contest Server on http://{}", addr);
-    println!("🚀 Mock Contest Server running on http://{}", addr);
+    println!("Mock Contest Server running on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
@@ -223,18 +223,34 @@ async fn handle_submit_result(
                 verdict: VerdictStatus::CompilationError,
                 passed_test_cases: 0,
                 total_test_cases: prob_state.test_inputs.len(),
-                message: format!("Compilation Error:\n{}", comp.stderr),
+                message: format!("Compilation Error:\n{}", compiler_output(comp)),
             }));
         }
     }
 
     let total = prob_state.test_inputs.len();
     let mut passed = 0;
+    let mut seen: HashSet<&str> = HashSet::new();
     let mut final_verdict = VerdictStatus::Accepted;
     let mut detail_message = String::new();
 
     // 2. Verify candidate test execution outputs against server's authoritative expected output
     for test_res in &submission_res.test_results {
+        // The client controls this payload, so every id it reports has to be a
+        // real test case and has to appear once. Otherwise a submission can
+        // manufacture a passing count out of unknown or repeated ids.
+        if !seen.insert(test_res.test_case_id.as_str()) {
+            final_verdict = VerdictStatus::SystemError;
+            detail_message = format!("Duplicate result for test case {}", test_res.test_case_id);
+            break;
+        }
+
+        let Some(expected) = prob_state.expected_outputs.get(&test_res.test_case_id) else {
+            final_verdict = VerdictStatus::SystemError;
+            detail_message = format!("Unknown test case {}", test_res.test_case_id);
+            break;
+        };
+
         match &test_res.status {
             LocalExecutionStatus::TimeLimitExceeded => {
                 final_verdict = VerdictStatus::TimeLimitExceeded;
@@ -242,7 +258,7 @@ async fn handle_submit_result(
                 break;
             }
             LocalExecutionStatus::OutputLimitExceeded => {
-                final_verdict = VerdictStatus::MemoryLimitExceeded;
+                final_verdict = VerdictStatus::OutputLimitExceeded;
                 detail_message = format!("Output Limit Exceeded on test case {}", test_res.test_case_id);
                 break;
             }
@@ -255,14 +271,7 @@ async fn handle_submit_result(
                 break;
             }
             LocalExecutionStatus::Success => {
-                let expected = prob_state
-                    .expected_outputs
-                    .get(&test_res.test_case_id)
-                    .map(|s| s.trim())
-                    .unwrap_or("");
-                let actual = test_res.stdout.trim();
-
-                if actual == expected {
+                if test_res.stdout.trim() == expected.trim() {
                     passed += 1;
                 } else {
                     final_verdict = VerdictStatus::WrongAnswer;
@@ -276,6 +285,17 @@ async fn handle_submit_result(
         }
     }
 
+    // A run is only accepted if every test case was actually reported and
+    // passed. Without this, a client that reports no results at all - or a
+    // subset - is otherwise indistinguishable from one that passed everything.
+    if final_verdict == VerdictStatus::Accepted && passed != total {
+        final_verdict = VerdictStatus::SystemError;
+        detail_message = format!(
+            "Incomplete submission: {} of {} test case results reported",
+            passed, total
+        );
+    }
+
     if final_verdict == VerdictStatus::Accepted {
         detail_message = format!("All {} test cases passed!", total);
     }
@@ -287,6 +307,23 @@ async fn handle_submit_result(
         total_test_cases: total,
         message: detail_message,
     }))
+}
+
+/// Compilers do not agree on which stream diagnostics belong on - the macOS
+/// `javac` stub writes its failure to stdout - so reporting only stderr can
+/// produce an empty "Compilation Error:" with the cause discarded.
+fn compiler_output(comp: &CompilationResult) -> String {
+    let mut parts = Vec::new();
+    if !comp.stderr.trim().is_empty() {
+        parts.push(comp.stderr.trim().to_string());
+    }
+    if !comp.stdout.trim().is_empty() {
+        parts.push(comp.stdout.trim().to_string());
+    }
+    if parts.is_empty() {
+        return "(compiler produced no diagnostics)".to_string();
+    }
+    parts.join("\n")
 }
 
 fn rand_id() -> u32 {

@@ -34,6 +34,11 @@ pub enum ClientError {
 
     #[error("Network error: {0}")]
     Network(String),
+
+    /// Carries an operator-facing description of what the CLI was doing when a
+    /// lower-level error surfaced. Built via [`Context::context`].
+    #[error("{0}")]
+    Cli(String),
 }
 
 impl From<std::io::Error> for ClientError {
@@ -55,3 +60,19 @@ impl From<reqwest::Error> for ClientError {
 }
 
 pub type Result<T> = std::result::Result<T, ClientError>;
+
+/// Attaches a human description to a failure so a single top-level handler can
+/// print something useful, instead of every call site inventing its own
+/// `eprintln!` + `exit(1)`.
+pub trait Context<T> {
+    fn context(self, description: &str) -> Result<T>;
+}
+
+impl<T, E> Context<T> for std::result::Result<T, E>
+where
+    E: Into<ClientError>,
+{
+    fn context(self, description: &str) -> Result<T> {
+        self.map_err(|err| ClientError::Cli(format!("{}: {}", description, err.into())))
+    }
+}
