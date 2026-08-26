@@ -40,7 +40,7 @@ impl Language {
             },
             Language::Java => Spec {
                 name: "java",
-                source_filename: "Solution.java",
+                source_filename: "solution.java",
                 aliases: &["java"],
                 extensions: &["java"],
             },
@@ -119,7 +119,7 @@ impl Language {
                 args: vec![
                     "-cp".to_string(),
                     work_dir.to_string_lossy().to_string(),
-                    "Solution".to_string(),
+                    "solution".to_string(),
                 ],
             },
             Language::Python => Invocation {

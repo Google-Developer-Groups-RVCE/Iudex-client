@@ -7,7 +7,7 @@ use crate::config::Config;
 use crate::error::{ClientError, Result};
 use crate::judge::compiler::Compiler;
 use crate::judge::result::{ExecutionTelemetry, SubmissionResult, TestResult};
-use crate::judge::runner::ProcessRunner;
+use crate::judge::runner::{Limits, ProcessRunner};
 use crate::languages::Language;
 
 pub struct JudgeEngine;
@@ -20,6 +20,7 @@ impl JudgeEngine {
         source_code: &str,
         test_inputs: &[TestInput],
         timeout_ms: Option<u64>,
+        memory_mb: Option<u64>,
     ) -> Result<SubmissionResult> {
         let temp_dir = TempDir::new()?;
         let work_path = temp_dir.path();
@@ -41,7 +42,7 @@ impl JudgeEngine {
             });
         }
 
-        let effective_timeout = timeout_ms.unwrap_or(config.default_timeout_ms);
+        let limits = Self::limits(config, timeout_ms, memory_mb);
         let mut test_results = Vec::new();
 
         for test in test_inputs {
@@ -52,7 +53,7 @@ impl JudgeEngine {
                 work_path,
                 &test.id,
                 &test.input_data,
-                effective_timeout,
+                limits,
             )
             .await?;
             test_results.push(result);
@@ -74,6 +75,7 @@ impl JudgeEngine {
         source_path: &Path,
         input_data: &str,
         timeout_ms: Option<u64>,
+        memory_mb: Option<u64>,
     ) -> Result<TestResult> {
         let temp_dir = TempDir::new()?;
         let work_path = temp_dir.path();
@@ -89,16 +91,22 @@ impl JudgeEngine {
             }
         }
 
-        let effective_timeout = timeout_ms.unwrap_or(config.default_timeout_ms);
         ProcessRunner::run_test_case(
             config,
             language,
             work_path,
             "local_run",
             input_data,
-            effective_timeout,
+            Self::limits(config, timeout_ms, memory_mb),
         )
         .await
+    }
+
+    fn limits(config: &Config, timeout_ms: Option<u64>, memory_mb: Option<u64>) -> Limits {
+        Limits {
+            timeout_ms: timeout_ms.unwrap_or(config.default_timeout_ms),
+            memory_mb: memory_mb.unwrap_or(config.default_memory_limit_mb),
+        }
     }
 
     fn collect_telemetry(config: &Config, language: Language) -> ExecutionTelemetry {

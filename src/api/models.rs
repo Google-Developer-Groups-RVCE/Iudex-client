@@ -66,6 +66,7 @@ pub enum VerdictStatus {
     RuntimeError,
     TimeLimitExceeded,
     MemoryLimitExceeded,
+    OutputLimitExceeded,
     SystemError,
 }
 
