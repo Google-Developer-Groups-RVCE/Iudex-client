@@ -108,10 +108,12 @@ impl Language {
         }
     }
 
-    /// Builds the run command. `memory_mb` (0 disables) is only consumed by the
-    /// JVM, which enforces its heap cap via `-Xmx` rather than the OS-level
-    /// address-space limit applied to the other languages — see
+    /// `memory_mb` is the cap from [`Limits`]; `0` means unlimited. Java is the
+    /// only language that takes it here, because it is the only one whose
+    /// memory is capped in-process rather than by the OS - see
     /// [`Language::limit_address_space`].
+    ///
+    /// [`Limits`]: crate::judge::runner::Limits
     pub fn execute(self, config: &Config, work_dir: &Path, memory_mb: u64) -> Invocation {
         match self {
             Language::Cpp => Invocation {
@@ -119,15 +121,16 @@ impl Language {
                 args: vec![],
             },
             Language::Java => {
+                // Every JVM option has to precede the class name; anything
+                // after it is passed to the program instead of the JVM.
                 let mut args = Vec::new();
-                // JVM options must precede the class name; the heap cap is how
-                // Java honours the memory limit, since RLIMIT_AS breaks it.
                 if memory_mb > 0 {
                     args.push(format!("-Xmx{}m", memory_mb));
                 }
                 args.push("-cp".to_string());
                 args.push(work_dir.to_string_lossy().to_string());
                 args.push("solution".to_string());
+
                 Invocation {
                     program: config.java_runner.clone(),
                     args,
@@ -140,16 +143,15 @@ impl Language {
         }
     }
 
-    /// Whether the memory limit is enforced by capping the process address space
-    /// (`RLIMIT_AS`). True for native/interpreted languages; false for Java,
-    /// whose runtime reserves a large virtual address space at startup and would
-    /// be killed outright by an `RLIMIT_AS` cap — it is bounded by `-Xmx` in
-    /// [`Language::execute`] instead.
+    /// Whether the OS-level address-space cap (`RLIMIT_AS`) applies.
+    ///
+    /// False for Java: `RLIMIT_AS` caps virtual address space, not resident
+    /// memory, and a JVM reserves far more address space at startup than it
+    /// ever commits. Capping it does not limit the heap, it stops `java` from
+    /// starting at all. Java is bounded by `-Xmx` in [`Language::execute`]
+    /// instead, which is both portable and what the limit actually means.
     pub fn limit_address_space(self) -> bool {
-        match self {
-            Language::Cpp | Language::Python => true,
-            Language::Java => false,
-        }
+        !matches!(self, Language::Java)
     }
 }
 
