@@ -108,24 +108,47 @@ impl Language {
         }
     }
 
-    pub fn execute(self, config: &Config, work_dir: &Path) -> Invocation {
+    /// Builds the run command. `memory_mb` (0 disables) is only consumed by the
+    /// JVM, which enforces its heap cap via `-Xmx` rather than the OS-level
+    /// address-space limit applied to the other languages — see
+    /// [`Language::limit_address_space`].
+    pub fn execute(self, config: &Config, work_dir: &Path, memory_mb: u64) -> Invocation {
         match self {
             Language::Cpp => Invocation {
                 program: work_dir.join("solution").to_string_lossy().to_string(),
                 args: vec![],
             },
-            Language::Java => Invocation {
-                program: config.java_runner.clone(),
-                args: vec![
-                    "-cp".to_string(),
-                    work_dir.to_string_lossy().to_string(),
-                    "solution".to_string(),
-                ],
-            },
+            Language::Java => {
+                let mut args = Vec::new();
+                // JVM options must precede the class name; the heap cap is how
+                // Java honours the memory limit, since RLIMIT_AS breaks it.
+                if memory_mb > 0 {
+                    args.push(format!("-Xmx{}m", memory_mb));
+                }
+                args.push("-cp".to_string());
+                args.push(work_dir.to_string_lossy().to_string());
+                args.push("solution".to_string());
+                Invocation {
+                    program: config.java_runner.clone(),
+                    args,
+                }
+            }
             Language::Python => Invocation {
                 program: config.python_interpreter.clone(),
                 args: vec![self.source_path(work_dir).to_string_lossy().to_string()],
             },
+        }
+    }
+
+    /// Whether the memory limit is enforced by capping the process address space
+    /// (`RLIMIT_AS`). True for native/interpreted languages; false for Java,
+    /// whose runtime reserves a large virtual address space at startup and would
+    /// be killed outright by an `RLIMIT_AS` cap — it is bounded by `-Xmx` in
+    /// [`Language::execute`] instead.
+    pub fn limit_address_space(self) -> bool {
+        match self {
+            Language::Cpp | Language::Python => true,
+            Language::Java => false,
         }
     }
 }

@@ -35,8 +35,10 @@ pub enum ClientError {
     #[error("Network error: {0}")]
     Network(String),
 
-    /// Carries an operator-facing description of what the CLI was doing when a
-    /// lower-level error surfaced. Built via [`Context::context`].
+    #[error("Parse error: {0}")]
+    ParseError(String),
+
+    /// Carries an user-facing description of what the CLI was doing when a failure occurred
     #[error("{0}")]
     Cli(String),
 }
