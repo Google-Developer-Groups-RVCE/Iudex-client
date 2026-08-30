@@ -1,12 +1,15 @@
+use chrono::Utc;
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tracing_subscriber::EnvFilter;
 
 use cp_client::api::client::ApiClient;
-use cp_client::api::models::SubmissionPayload;
+use cp_client::api::models::{Contest, SubmissionPayload};
 use cp_client::config::Config;
+use cp_client::contest::history::SubmissionRecord;
 use cp_client::contest::manager::ContestManager;
+use cp_client::contest::status::{contest_timing, format_duration, ContestStatus};
 use cp_client::error::{Context, Result};
 use cp_client::judge::engine::JudgeEngine;
 use cp_client::languages::Language;
@@ -96,6 +99,13 @@ enum Commands {
         memory: Option<u64>,
     },
 
+    /// List locally recorded past submissions and their verdicts
+    History {
+        /// Only show submissions for this problem ID
+        #[arg(short, long)]
+        problem: Option<String>,
+    },
+
     /// Start a local mock contest server for development and testing
     MockServer {
         /// Port to listen on
@@ -165,13 +175,14 @@ async fn run(cli: Cli) -> Result<()> {
         Commands::Contest { id } => {
             let manager = ContestManager::new(&config)?;
             let contest = manager
-                .get_contest(&id)
+                .fetch_contest(&id)
                 .await
                 .context("Failed to fetch contest")?;
 
             println!("\nContest Details: {}", contest.title);
             println!("ID: {}", contest.id);
             println!("Description: {}", contest.description);
+            println!("Status: {}", describe_status(&contest));
             println!("\nProblems:");
             println!("{:<10} {:<30} {:<10}", "PROBLEM", "TITLE", "SCORE");
             println!("{}", "-".repeat(52));
@@ -300,6 +311,55 @@ async fn run(cli: Cli) -> Result<()> {
                 verdict.passed_test_cases, verdict.total_test_cases
             );
             println!("Details: {}", verdict.message);
+
+            let record = SubmissionRecord {
+                submission_id: verdict.submission_id.clone(),
+                problem_id: payload.problem_id.clone(),
+                language: payload.language.clone(),
+                verdict: verdict.verdict.clone(),
+                passed_test_cases: verdict.passed_test_cases,
+                total_test_cases: verdict.total_test_cases,
+                timestamp: Utc::now(),
+            };
+            // A history write failure shouldn't fail an otherwise successful submission so we log a warning and continue
+            if let Err(err) = manager.record_submission(&record) {
+                tracing::warn!("Could not record submission to local history: {}", err);
+            }
+        }
+
+        Commands::History { problem } => {
+            let manager = ContestManager::new(&config)?;
+            let mut history = manager
+                .submission_history()
+                .context("Failed to read submission history")?;
+
+            if let Some(problem_id) = &problem {
+                history.retain(|record| &record.problem_id == problem_id);
+            }
+            history.reverse(); // Newest first.
+
+            if history.is_empty() { 
+                println!("No submissions recorded yet.");
+            } else {
+                println!("\nSubmission History:");
+                println!(
+                    "{:<20} {:<10} {:<6} {:<18} {:<8} {}", // left-align the columns
+                    "TIME", "PROBLEM", "LANG", "VERDICT", "PASSED", "SUBMISSION ID"
+                );
+                // Underline spans the six columns: 20 + 10 + 6 + 18 + 8 + 14 = 82.
+                println!("{}", "-".repeat(82));
+                for record in history {
+                    println!(
+                        "{:<20} {:<10} {:<6} {:<18} {:<8} {}",
+                        record.timestamp.format("%Y-%m-%d %H:%M:%S"),
+                        record.problem_id,
+                        record.language,
+                        format!("{:?}", record.verdict),
+                        format!("{}/{}", record.passed_test_cases, record.total_test_cases),
+                        record.submission_id,
+                    );
+                }
+            }
         }
 
         Commands::MockServer { port } => {
@@ -314,6 +374,23 @@ fn resolve_language(lang: Option<&str>, source: &Path) -> Result<Language> {
     match lang {
         Some(name) => Language::from_str(name),
         None => Language::from_extension(source),
+    }
+}
+
+/// user-facing contest status line. Timing is informational, so a malformed server timestamp degrades to a note rather than failing the command..
+fn describe_status(contest: &Contest) -> String {
+    match contest_timing(contest, Utc::now()) {
+        Ok(timing) => match (timing.status, timing.time_remaining) {
+            (ContestStatus::Upcoming, Some(remaining)) => {
+                format!("UPCOMING (starts in {})", format_duration(remaining))
+            }
+            (ContestStatus::Running, Some(remaining)) => {
+                format!("RUNNING ({} remaining)", format_duration(remaining))
+            }
+            (ContestStatus::Ended, _) => "ENDED".to_string(),
+            (status, None) => format!("{:?}", status),
+        },
+        Err(err) => format!("unknown ({})", err),
     }
 }
 
