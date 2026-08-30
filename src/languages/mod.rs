@@ -108,25 +108,50 @@ impl Language {
         }
     }
 
-    pub fn execute(self, config: &Config, work_dir: &Path) -> Invocation {
+    /// `memory_mb` is the cap from [`Limits`]; `0` means unlimited. Java is the
+    /// only language that takes it here, because it is the only one whose
+    /// memory is capped in-process rather than by the OS - see
+    /// [`Language::limit_address_space`].
+    ///
+    /// [`Limits`]: crate::judge::runner::Limits
+    pub fn execute(self, config: &Config, work_dir: &Path, memory_mb: u64) -> Invocation {
         match self {
             Language::Cpp => Invocation {
                 program: work_dir.join("solution").to_string_lossy().to_string(),
                 args: vec![],
             },
-            Language::Java => Invocation {
-                program: config.java_runner.clone(),
-                args: vec![
-                    "-cp".to_string(),
-                    work_dir.to_string_lossy().to_string(),
-                    "solution".to_string(),
-                ],
-            },
+            Language::Java => {
+                // Every JVM option has to precede the class name; anything
+                // after it is passed to the program instead of the JVM.
+                let mut args = Vec::new();
+                if memory_mb > 0 {
+                    args.push(format!("-Xmx{}m", memory_mb));
+                }
+                args.push("-cp".to_string());
+                args.push(work_dir.to_string_lossy().to_string());
+                args.push("solution".to_string());
+
+                Invocation {
+                    program: config.java_runner.clone(),
+                    args,
+                }
+            }
             Language::Python => Invocation {
                 program: config.python_interpreter.clone(),
                 args: vec![self.source_path(work_dir).to_string_lossy().to_string()],
             },
         }
+    }
+
+    /// Whether the OS-level address-space cap (`RLIMIT_AS`) applies.
+    ///
+    /// False for Java: `RLIMIT_AS` caps virtual address space, not resident
+    /// memory, and a JVM reserves far more address space at startup than it
+    /// ever commits. Capping it does not limit the heap, it stops `java` from
+    /// starting at all. Java is bounded by `-Xmx` in [`Language::execute`]
+    /// instead, which is both portable and what the limit actually means.
+    pub fn limit_address_space(self) -> bool {
+        !matches!(self, Language::Java)
     }
 }
 
@@ -139,14 +164,5 @@ impl FromStr for Language {
             .into_iter()
             .find(|l| l.spec().aliases.contains(&lang.as_str()))
             .ok_or(ClientError::UnsupportedLanguage(lang))
-    }
-}
-
-impl Language {
-    // note from rahul - this is only here because the definition
-    // was missing and i needed the code to compile so i could work
-    // on other stuff
-    pub fn limit_address_space(&self) -> bool {
-        true 
     }
 }
