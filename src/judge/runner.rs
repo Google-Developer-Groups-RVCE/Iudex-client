@@ -31,7 +31,7 @@ impl ProcessRunner {
         input: &str,
         limits: Limits,
     ) -> Result<TestResult> {
-        let invocation = language.execute(config, work_dir, limits.memory_mb);
+        let invocation = language.execute(config, work_dir);
 
         let mut child = build_command(&invocation, work_dir, language, limits.memory_mb)
             .stdin(Stdio::piped())

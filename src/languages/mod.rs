@@ -141,3 +141,12 @@ impl FromStr for Language {
             .ok_or(ClientError::UnsupportedLanguage(lang))
     }
 }
+
+impl Language {
+    // note from rahul - this is only here because the definition
+    // was missing and i needed the code to compile so i could work
+    // on other stuff
+    pub fn limit_address_space(&self) -> bool {
+        true 
+    }
+}
