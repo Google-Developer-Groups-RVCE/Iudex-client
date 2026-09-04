@@ -7,6 +7,7 @@ use tracing::{info, warn};
 use crate::api::client::ApiClient;
 use crate::api::models::{Contest, Problem, TestInput};
 use crate::config::Config;
+use crate::contest::history::{self, SubmissionRecord};
 use crate::error::{ClientError, Result};
 
 pub struct ContestManager {
@@ -36,8 +37,29 @@ impl ContestManager {
         self.api.get_contests().await
     }
 
-    pub async fn get_contest(&self, contest_id: &str) -> Result<Contest> {
-        self.api.get_contest(contest_id).await
+    /// Contest metadata (title, window, problem list) is cached so `contest <id>`
+    /// keeps working offline, mirroring the problem/test-input paths.
+    pub async fn fetch_contest(&self, contest_id: &str) -> Result<Contest> {
+        let cache_file = self.cache_path("contest", contest_id);
+        match self.api.get_contest(contest_id).await {
+            Ok(contest) => {
+                write_cache(&cache_file, &contest);
+                Ok(contest)
+            }
+            Err(err) => {
+                self.fall_back_to_cache(&cache_file, &format!("contest {}", contest_id), err)
+            }
+        }
+    }
+
+    /// Appends a verdict to the local submission log. Left uncached-agnostic on
+    /// purpose: history is a client-side record, independent of the server.
+    pub fn record_submission(&self, record: &SubmissionRecord) -> Result<()> {
+        history::append_record(&self.cache_dir, record)
+    }
+
+    pub fn submission_history(&self) -> Result<Vec<SubmissionRecord>> {
+        history::load_history(&self.cache_dir)
     }
 
     /// Problem metadata carries the authoritative time and memory limits, so it

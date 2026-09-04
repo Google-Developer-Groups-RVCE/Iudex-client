@@ -229,13 +229,20 @@ fn runs_successfully(path: &Path, version_arg: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::detect_binary;
+    use super::{candidate_paths, detect_binary};
+    use std::path::Path;
 
     #[test]
     fn rejects_binary_that_is_not_on_path() {
         assert!(detect_binary(&["cp-client-no-such-binary-xyz"], "--version").is_none());
     }
 
+    // `true`/`false` are Unix-shell binaries: present on PATH, executable, and
+    // exiting 0 / non-zero regardless of arguments. Windows ships no PATH
+    // equivalent, so these two assertions are meaningful only on Unix and are
+    // gated out elsewhere. Cross-platform coverage of the PATH-search logic
+    // lives in `windows_candidate_paths_include_exe_suffix` below.
+    #[cfg(unix)]
     #[test]
     fn accepts_a_binary_that_runs() {
         // `true` ignores its arguments and exits 0 on both BSD and GNU.
@@ -244,6 +251,7 @@ mod tests {
         assert!(found.unwrap().ends_with("true"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn skips_candidates_that_exist_but_fail_to_run() {
         // `false` is on PATH and executable, but always exits non-zero, so it
@@ -256,5 +264,23 @@ mod tests {
                 .to_string()),
             Some("true".to_string())
         );
+    }
+
+    // Appending `.exe` is what lets a bare "g++" resolve to "g++.exe" on Windows;
+    // it must never happen on Unix. This is the one branch of `candidate_paths`
+    // that varies by OS, so pin it on every platform.
+    #[test]
+    fn windows_candidate_paths_include_exe_suffix() {
+        let names: Vec<String> = candidate_paths(Path::new("bin"), "g++")
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+
+        assert!(names.contains(&"g++".to_string()));
+        if cfg!(windows) {
+            assert!(names.contains(&"g++.exe".to_string()));
+        } else {
+            assert!(!names.iter().any(|n| n.ends_with(".exe")));
+        }
     }
 }
