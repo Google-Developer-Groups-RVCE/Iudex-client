@@ -100,7 +100,10 @@ impl Config {
             return Self::load();
         }
 
-        info!("No configuration found; detecting toolchains and creating {:?}", path);
+        info!(
+            "No configuration found; detecting toolchains and creating {:?}",
+            path
+        );
         let config = Config::default();
         config.save()?;
         Ok(config)
@@ -246,8 +249,11 @@ mod tests {
         // `false` is on PATH and executable, but always exits non-zero, so it
         // must be rejected and the working candidate chosen instead.
         assert_eq!(
-            detect_binary(&["false", "true"], "--version")
-                .map(|p| p.rsplit('/').next().unwrap().to_string()),
+            detect_binary(&["false", "true"], "--version").map(|p| p
+                .rsplit('/')
+                .next()
+                .unwrap()
+                .to_string()),
             Some("true".to_string())
         );
     }

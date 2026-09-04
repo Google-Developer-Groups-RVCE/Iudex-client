@@ -49,7 +49,9 @@ impl ContestManager {
                 write_cache(&cache_file, &problem);
                 Ok(problem)
             }
-            Err(err) => self.fall_back_to_cache(&cache_file, &format!("problem {}", problem_id), err),
+            Err(err) => {
+                self.fall_back_to_cache(&cache_file, &format!("problem {}", problem_id), err)
+            }
         }
     }
 

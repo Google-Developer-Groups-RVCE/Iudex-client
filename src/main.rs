@@ -139,7 +139,10 @@ async fn run(cli: Cli) -> Result<()> {
             config.auth_token = Some(response.token);
             config.username = Some(response.username.clone());
             config.save().context("Could not save session")?;
-            println!("Login successful. Session saved for user '{}'.", response.username);
+            println!(
+                "Login successful. Session saved for user '{}'.",
+                response.username
+            );
         }
 
         Commands::Contests => {
@@ -176,7 +179,10 @@ async fn run(cli: Cli) -> Result<()> {
             println!("{:<10} {:<30} {:<10}", "PROBLEM", "TITLE", "SCORE");
             println!("{}", "-".repeat(52));
             for problem in contest.problems {
-                println!("{:<10} {:<30} {:<10}", problem.id, problem.title, problem.score);
+                println!(
+                    "{:<10} {:<30} {:<10}",
+                    problem.id, problem.title, problem.score
+                );
             }
         }
 
@@ -210,10 +216,16 @@ async fn run(cli: Cli) -> Result<()> {
             let input_data = read_input(input.as_deref())?;
 
             println!("Compiling and executing locally ({}) ...", language.name());
-            let result =
-                JudgeEngine::run_local_single(&config, language, &source, &input_data, timeout, memory)
-                    .await
-                    .context("Local execution error")?;
+            let result = JudgeEngine::run_local_single(
+                &config,
+                language,
+                &source,
+                &input_data,
+                timeout,
+                memory,
+            )
+            .await
+            .context("Local execution error")?;
 
             println!("\n--- Execution Result ---");
             println!("Status: {:?}", result.status);

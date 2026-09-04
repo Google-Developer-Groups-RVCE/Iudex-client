@@ -2,7 +2,8 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::Client as HttpClient;
 
 use crate::api::models::{
-    AuthoritativeVerdict, Contest, LoginRequest, LoginResponse, Problem, SubmissionPayload, TestInput,
+    AuthoritativeVerdict, Contest, LoginRequest, LoginResponse, Problem, SubmissionPayload,
+    TestInput,
 };
 use crate::config::Config;
 use crate::error::{ClientError, Result};
@@ -63,48 +64,28 @@ impl ApiClient {
 
     pub async fn get_contests(&self) -> Result<Vec<Contest>> {
         let url = format!("{}/api/contests", self.server_url);
-        let res = self
-            .http
-            .get(&url)
-            .headers(self.headers())
-            .send()
-            .await?;
+        let res = self.http.get(&url).headers(self.headers()).send().await?;
 
         self.handle_response(res).await
     }
 
     pub async fn get_contest(&self, contest_id: &str) -> Result<Contest> {
         let url = format!("{}/api/contests/{}", self.server_url, contest_id);
-        let res = self
-            .http
-            .get(&url)
-            .headers(self.headers())
-            .send()
-            .await?;
+        let res = self.http.get(&url).headers(self.headers()).send().await?;
 
         self.handle_response(res).await
     }
 
     pub async fn get_problem(&self, problem_id: &str) -> Result<Problem> {
         let url = format!("{}/api/problems/{}", self.server_url, problem_id);
-        let res = self
-            .http
-            .get(&url)
-            .headers(self.headers())
-            .send()
-            .await?;
+        let res = self.http.get(&url).headers(self.headers()).send().await?;
 
         self.handle_response(res).await
     }
 
     pub async fn get_test_inputs(&self, problem_id: &str) -> Result<Vec<TestInput>> {
         let url = format!("{}/api/problems/{}/tests", self.server_url, problem_id);
-        let res = self
-            .http
-            .get(&url)
-            .headers(self.headers())
-            .send()
-            .await?;
+        let res = self.http.get(&url).headers(self.headers()).send().await?;
 
         self.handle_response(res).await
     }
@@ -122,7 +103,10 @@ impl ApiClient {
         self.handle_response(res).await
     }
 
-    async fn handle_response<T: serde::de::DeserializeOwned>(&self, res: reqwest::Response) -> Result<T> {
+    async fn handle_response<T: serde::de::DeserializeOwned>(
+        &self,
+        res: reqwest::Response,
+    ) -> Result<T> {
         let status = res.status();
         if status.is_success() {
             let data: T = res.json().await?;
