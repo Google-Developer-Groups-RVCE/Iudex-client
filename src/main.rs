@@ -350,7 +350,7 @@ async fn run(cli: Cli) -> Result<()> {
             }
             history.reverse(); // Newest first.
 
-            if history.is_empty() { 
+            if history.is_empty() {
                 println!("No submissions recorded yet.");
             } else {
                 println!("\nSubmission History:");
