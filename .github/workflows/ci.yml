@@ -51,7 +51,7 @@ jobs:
 
       # The judge shells out to real toolchains, so the runner needs them on
       # PATH before Config::default() probes for them.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: actions/setup-java@v4
