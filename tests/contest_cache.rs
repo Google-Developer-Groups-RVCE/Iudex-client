@@ -31,7 +31,10 @@ fn free_port() -> u16 {
 
 async fn wait_until_listening(port: u16) {
     for _ in 0..100 {
-        if tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
+        if tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .is_ok()
+        {
             return;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -41,7 +44,10 @@ async fn wait_until_listening(port: u16) {
 
 async fn wait_until_down(port: u16) {
     for _ in 0..100 {
-        if tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_err() {
+        if tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .is_err()
+        {
             return;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -81,9 +87,11 @@ async fn contest_cache_survives_going_offline() {
         .join(".cache")
         .join("cp-client")
         .join("contest_contest-101.json");
-    assert!(cache_file.exists(), "fetch should have written the cache file");
+    assert!(
+        cache_file.exists(),
+        "fetch should have written the cache file"
+    );
 
-    
     // Phase 2 — Go offline: kill the server and confirm the port stops accepting.
     server.abort();
     wait_until_down(port).await;

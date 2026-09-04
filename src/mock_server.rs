@@ -10,8 +10,8 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::api::models::{
-    AuthoritativeVerdict, Contest, LoginRequest, LoginResponse, Problem, ProblemSummary, SubmissionPayload,
-    TestInput, VerdictStatus,
+    AuthoritativeVerdict, Contest, LoginRequest, LoginResponse, Problem, ProblemSummary,
+    SubmissionPayload, TestInput, VerdictStatus,
 };
 use crate::judge::result::{CompilationResult, LocalExecutionStatus};
 
@@ -44,7 +44,8 @@ impl AppState {
                     id: "A".to_string(),
                     contest_id: "contest-101".to_string(),
                     title: "A. Simple Addition".to_string(),
-                    statement: "Given two space-separated integers A and B, output their sum.".to_string(),
+                    statement: "Given two space-separated integers A and B, output their sum."
+                        .to_string(),
                     input_spec: "Two space-separated integers A and B.".to_string(),
                     output_spec: "Print a single integer A + B.".to_string(),
                     constraints: "-10^9 <= A, B <= 10^9".to_string(),
@@ -81,7 +82,8 @@ impl AppState {
                     id: "B".to_string(),
                     contest_id: "contest-101".to_string(),
                     title: "B. Palindrome Verification".to_string(),
-                    statement: "Check if a given string is a palindrome. Output YES or NO.".to_string(),
+                    statement: "Check if a given string is a palindrome. Output YES or NO."
+                        .to_string(),
                     input_spec: "A single string S.".to_string(),
                     output_spec: "YES or NO".to_string(),
                     constraints: "1 <= |S| <= 100".to_string(),
@@ -254,12 +256,16 @@ async fn handle_submit_result(
         match &test_res.status {
             LocalExecutionStatus::TimeLimitExceeded => {
                 final_verdict = VerdictStatus::TimeLimitExceeded;
-                detail_message = format!("Time Limit Exceeded on test case {}", test_res.test_case_id);
+                detail_message =
+                    format!("Time Limit Exceeded on test case {}", test_res.test_case_id);
                 break;
             }
             LocalExecutionStatus::OutputLimitExceeded => {
                 final_verdict = VerdictStatus::OutputLimitExceeded;
-                detail_message = format!("Output Limit Exceeded on test case {}", test_res.test_case_id);
+                detail_message = format!(
+                    "Output Limit Exceeded on test case {}",
+                    test_res.test_case_id
+                );
                 break;
             }
             LocalExecutionStatus::RuntimeError { exit_code } => {

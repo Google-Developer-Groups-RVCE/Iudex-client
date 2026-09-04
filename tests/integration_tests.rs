@@ -1,11 +1,11 @@
-use tempfile::TempDir;
 use std::fs;
+use tempfile::TempDir;
 
+use cp_client::api::models::TestInput;
 use cp_client::config::Config;
 use cp_client::judge::engine::JudgeEngine;
 use cp_client::judge::result::LocalExecutionStatus;
 use cp_client::languages::{Invocation, Language};
-use cp_client::api::models::TestInput;
 
 #[tokio::test]
 async fn test_python_local_run_success() {
@@ -13,7 +13,11 @@ async fn test_python_local_run_success() {
     let temp_dir = TempDir::new().unwrap();
     let source_path = temp_dir.path().join("solution.py");
 
-    fs::write(&source_path, "import sys\na, b = map(int, sys.stdin.read().split())\nprint(a + b)\n").unwrap();
+    fs::write(
+        &source_path,
+        "import sys\na, b = map(int, sys.stdin.read().split())\nprint(a + b)\n",
+    )
+    .unwrap();
 
     let res = JudgeEngine::run_local_single(
         &config,
@@ -175,7 +179,12 @@ async fn test_memory_limit_allows_normal_programs() {
         )
         .await
         .unwrap();
-        assert_eq!(res.status, LocalExecutionStatus::Success, "memory_mb={:?}", memory_mb);
+        assert_eq!(
+            res.status,
+            LocalExecutionStatus::Success,
+            "memory_mb={:?}",
+            memory_mb
+        );
         assert_eq!(res.stdout.trim(), "499500");
     }
 }
@@ -349,7 +358,11 @@ fn every_language_is_capped_by_exactly_one_mechanism() {
             self_capped,
             "{} is capped by {}",
             language.name(),
-            if os_capped { "both mechanisms" } else { "neither mechanism" }
+            if os_capped {
+                "both mechanisms"
+            } else {
+                "neither mechanism"
+            }
         );
     }
 }

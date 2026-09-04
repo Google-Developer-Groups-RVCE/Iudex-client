@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
 use crate::error::{ClientError, Result};
