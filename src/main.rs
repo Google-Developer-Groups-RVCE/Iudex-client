@@ -355,8 +355,8 @@ async fn run(cli: Cli) -> Result<()> {
             } else {
                 println!("\nSubmission History:");
                 println!(
-                    "{:<20} {:<10} {:<6} {:<18} {:<8} {}", // left-align the columns
-                    "TIME", "PROBLEM", "LANG", "VERDICT", "PASSED", "SUBMISSION ID"
+                    "{:<20} {:<10} {:<6} {:<18} {:<8} SUBMISSION ID", // left-align the columns
+                    "TIME", "PROBLEM", "LANG", "VERDICT", "PASSED"
                 );
                 // Underline spans the six columns: 20 + 10 + 6 + 18 + 8 + 14 = 82.
                 println!("{}", "-".repeat(82));
