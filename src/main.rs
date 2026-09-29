@@ -5,12 +5,12 @@ use std::str::FromStr;
 use tracing_subscriber::EnvFilter;
 
 use cp_client::api::client::ApiClient;
-use cp_client::api::models::{Contest, SubmissionPayload};
+use cp_client::api::models::{AuthResponse, Contest, Role, SubmissionPayload};
 use cp_client::config::Config;
 use cp_client::contest::history::SubmissionRecord;
 use cp_client::contest::manager::ContestManager;
 use cp_client::contest::status::{contest_timing, format_duration, ContestStatus};
-use cp_client::error::{Context, Result};
+use cp_client::error::{ClientError, Context, Result};
 use cp_client::judge::engine::JudgeEngine;
 use cp_client::languages::Language;
 use cp_client::mock_server::run_mock_server;
@@ -27,18 +27,39 @@ struct Cli {
 enum Commands {
     /// Authenticate with the contest server
     Login {
-        /// Server base URL (e.g. http://127.0.0.1:8080)
-        #[arg(short, long, default_value = "http://127.0.0.1:8080")]
-        server: String,
+        /// Server base URL (e.g. http://127.0.0.1:8080). Defaults to the saved server.
+        #[arg(short, long)]
+        server: Option<String>,
 
         /// Username
         #[arg(short, long)]
         username: String,
 
-        /// Password
-        #[arg(short, long)]
-        password: String,
+        /// Read the password from stdin instead of prompting, for scripts
+        #[arg(long)]
+        password_stdin: bool,
     },
+
+    /// Create a contestant account and log in as it
+    Register {
+        /// Server base URL (e.g. http://127.0.0.1:8080). Defaults to the saved server.
+        #[arg(short, long)]
+        server: Option<String>,
+
+        /// Username (3-50 characters: letters, digits, '.', '_' or '-')
+        #[arg(short, long)]
+        username: String,
+
+        /// Read the password from stdin instead of prompting, for scripts
+        #[arg(long)]
+        password_stdin: bool,
+    },
+
+    /// Show which account the saved session belongs to
+    Whoami,
+
+    /// Sign out: revoke the session on the server and forget it locally
+    Logout,
 
     /// List available contests
     Contests,
@@ -135,24 +156,110 @@ async fn run(cli: Cli) -> Result<()> {
         Commands::Login {
             server,
             username,
-            password,
+            password_stdin,
         } => {
-            println!("Logging into server {} as '{}'...", server, username);
-            config.server_url = server;
+            if let Some(server) = server {
+                config.server_url = server;
+            }
+            let password = read_password(password_stdin, false)?;
 
-            let api = ApiClient::new(&config);
-            let response = api
+            println!(
+                "Logging into server {} as '{}'...",
+                config.server_url, username
+            );
+            let response = ApiClient::new(&config)
                 .login(&username, &password)
                 .await
                 .context("Login failed")?;
 
-            config.auth_token = Some(response.token);
-            config.username = Some(response.username.clone());
-            config.save().context("Could not save session")?;
+            save_session(&mut config, &response)?;
             println!(
-                "Login successful. Session saved for user '{}'.",
-                response.username
+                "Login successful. Session saved for user '{}' ({}).",
+                response.username,
+                describe_role(Some(response.role))
             );
+        }
+
+        Commands::Register {
+            server,
+            username,
+            password_stdin,
+        } => {
+            if let Some(server) = server {
+                config.server_url = server;
+            }
+            let password = read_password(password_stdin, true)?;
+
+            println!(
+                "Registering '{}' on server {}...",
+                username, config.server_url
+            );
+            let response = ApiClient::new(&config)
+                .register(&username, &password)
+                .await
+                .context("Registration failed")?;
+
+            save_session(&mut config, &response)?;
+            println!(
+                "Account created. Logged in as '{}' ({}).",
+                response.username,
+                describe_role(Some(response.role))
+            );
+        }
+
+        Commands::Whoami => {
+            let me = ApiClient::new(&config)
+                .me()
+                .await
+                .context("Could not verify session")?;
+
+            println!(
+                "Logged in as '{}' ({})",
+                me.username,
+                describe_role(me.role)
+            );
+            println!("Server: {}", config.server_url);
+        }
+
+        Commands::Logout => {
+            let Some(username) = config
+                .username
+                .clone()
+                .filter(|_| config.auth_token.is_some())
+            else {
+                println!("Not logged in.");
+                return Ok(());
+            };
+
+            // Revoke first, while the token is still on hand. Whatever the
+            // server says, the local copy is dropped afterwards: someone who
+            // asked to be signed out should not stay signed in on this machine
+            // because the server was unreachable.
+            let revoked = ApiClient::new(&config).logout().await;
+
+            config.auth_token = None;
+            config.username = None;
+            config.save().context("Could not clear saved session")?;
+
+            match revoked {
+                Ok(()) => println!(
+                    "Logged out '{}'. Sessions on every device for this account have been revoked.",
+                    username
+                ),
+                // Already expired or revoked: nothing left to revoke.
+                Err(ClientError::Unauthorized(_)) => println!(
+                    "Logged out '{}'. The server had already ended this session.",
+                    username
+                ),
+                Err(err) => {
+                    println!("Logged out '{}' on this machine.", username);
+                    eprintln!(
+                        "Warning: could not revoke the session on the server ({}). \
+                         The token stays valid there until it expires.",
+                        err
+                    );
+                }
+            }
         }
 
         Commands::Contests => {
@@ -403,6 +510,53 @@ fn describe_status(contest: &Contest) -> String {
             (status, None) => format!("{:?}", status),
         },
         Err(err) => format!("unknown ({})", err),
+    }
+}
+
+/// Prompts without echo so the password stays out of shell history and the
+/// process list. `--password-stdin` takes the first line of stdin instead, for
+/// scripts (e.g. `echo "$PW" | cp-client login -u alice --password-stdin`).
+fn read_password(from_stdin: bool, confirm: bool) -> Result<String> {
+    let password = if from_stdin {
+        let mut line = String::new();
+        std::io::stdin()
+            .read_line(&mut line)
+            .context("Could not read password from stdin")?;
+        line.trim_end_matches(['\r', '\n']).to_string()
+    } else {
+        let password =
+            rpassword::prompt_password("Password: ").context("Could not read password")?;
+        if confirm {
+            let again = rpassword::prompt_password("Confirm password: ")
+                .context("Could not read password")?;
+            if again != password {
+                return Err(ClientError::Cli("Passwords do not match".to_string()));
+            }
+        }
+        password
+    };
+
+    if password.is_empty() {
+        return Err(ClientError::Cli("Password must not be empty".to_string()));
+    }
+    Ok(password)
+}
+
+/// Stores the token together with the server it came from. The server URL is
+/// only persisted here, on success, so a failed login leaves the old session
+/// intact.
+fn save_session(config: &mut Config, response: &AuthResponse) -> Result<()> {
+    config.auth_token = Some(response.token.clone());
+    config.username = Some(response.username.clone());
+    config.save().context("Could not save session")
+}
+
+fn describe_role(role: Option<Role>) -> &'static str {
+    match role {
+        Some(Role::Admin) => "admin",
+        Some(Role::Contestmaster) => "contestmaster",
+        Some(Role::Contestant) => "contestant",
+        Some(Role::Unknown) | None => "unknown role",
     }
 }
 

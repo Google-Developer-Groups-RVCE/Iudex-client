@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{header::AUTHORIZATION, HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -10,8 +10,8 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::api::models::{
-    AuthoritativeVerdict, Contest, LoginRequest, LoginResponse, Problem, ProblemSummary,
-    SubmissionPayload, TestInput, VerdictStatus,
+    AuthResponse, AuthoritativeVerdict, Contest, LoginRequest, MeResponse, Problem, ProblemSummary,
+    Role, SubmissionPayload, TestInput, VerdictStatus,
 };
 use crate::judge::result::{CompilationResult, LocalExecutionStatus};
 
@@ -135,7 +135,11 @@ pub async fn run_mock_server(port: u16) -> crate::error::Result<()> {
     let state = AppState::new();
 
     let app = Router::new()
-        .route("/api/auth/login", post(handle_login))
+        // Mirrors the real server, whose auth routes sit outside `/api`.
+        .route("/auth/login", post(handle_login))
+        .route("/auth/register", post(handle_register))
+        .route("/auth/me", get(handle_me))
+        .route("/auth/logout", post(handle_logout))
         .route("/api/contests", get(handle_get_contests))
         .route("/api/contests/:id", get(handle_get_contest))
         .route("/api/problems/:id", get(handle_get_problem))
@@ -153,13 +157,57 @@ pub async fn run_mock_server(port: u16) -> crate::error::Result<()> {
     Ok(())
 }
 
-async fn handle_login(Json(req): Json<LoginRequest>) -> (StatusCode, Json<LoginResponse>) {
+const MOCK_TOKEN_PREFIX: &str = "mock_token_for_";
+
+fn mock_auth_response(username: String) -> AuthResponse {
+    AuthResponse {
+        token: format!("{}{}", MOCK_TOKEN_PREFIX, username),
+        username,
+        role: Role::Contestant,
+    }
+}
+
+async fn handle_login(Json(req): Json<LoginRequest>) -> (StatusCode, Json<AuthResponse>) {
     info!("Login request for user: {}", req.username);
-    let resp = LoginResponse {
-        token: format!("mock_token_for_{}", req.username),
-        username: req.username,
-    };
-    (StatusCode::OK, Json(resp))
+    (StatusCode::OK, Json(mock_auth_response(req.username)))
+}
+
+async fn handle_register(Json(req): Json<LoginRequest>) -> (StatusCode, Json<AuthResponse>) {
+    info!("Registration request for user: {}", req.username);
+    (StatusCode::CREATED, Json(mock_auth_response(req.username)))
+}
+
+/// Answers 401 with no body for a missing or foreign token, as the real
+/// server's security filter does.
+async fn handle_me(headers: HeaderMap) -> Result<Json<MeResponse>, StatusCode> {
+    let username = mock_token_user(&headers)?;
+    Ok(Json(MeResponse {
+        username,
+        role: Some(Role::Contestant),
+    }))
+}
+
+/// The mock keeps no state, so unlike the real server a "revoked" token keeps
+/// working here. It only mirrors the status codes.
+async fn handle_logout(headers: HeaderMap) -> StatusCode {
+    match mock_token_user(&headers) {
+        Ok(username) => {
+            info!("Logout request for user: {}", username);
+            StatusCode::NO_CONTENT
+        }
+        Err(status) => status,
+    }
+}
+
+fn mock_token_user(headers: &HeaderMap) -> Result<String, StatusCode> {
+    headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .and_then(|token| token.strip_prefix(MOCK_TOKEN_PREFIX))
+        .filter(|username| !username.is_empty())
+        .map(str::to_string)
+        .ok_or(StatusCode::UNAUTHORIZED)
 }
 
 async fn handle_get_contests(State(state): State<AppState>) -> Json<Vec<Contest>> {
