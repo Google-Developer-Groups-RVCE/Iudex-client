@@ -7,10 +7,36 @@ pub struct LoginRequest {
     pub password: String,
 }
 
+/// Registration takes the same fields as login. The server additionally
+/// requires a 3-50 character username and an 8-72 character password.
+pub type RegisterRequest = LoginRequest;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum Role {
+    Admin,
+    Contestmaster,
+    Contestant,
+    /// A role added on the server after this client was built. Kept so that a
+    /// new role cannot make login fail to deserialize.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Returned by both `POST /auth/login` and `POST /auth/register`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoginResponse {
+pub struct AuthResponse {
     pub token: String,
     pub username: String,
+    pub role: Role,
+}
+
+/// Returned by `GET /auth/me`. The server sends `role` as null for an account
+/// with no authority.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeResponse {
+    pub username: String,
+    pub role: Option<Role>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,4 +103,46 @@ pub struct AuthoritativeVerdict {
     pub passed_test_cases: usize,
     pub total_test_cases: usize,
     pub message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AuthResponse, MeResponse, Role};
+
+    #[test]
+    fn roles_use_the_servers_uppercase_names() {
+        for (wire, role) in [
+            ("\"ADMIN\"", Role::Admin),
+            ("\"CONTESTMASTER\"", Role::Contestmaster),
+            ("\"CONTESTANT\"", Role::Contestant),
+        ] {
+            assert_eq!(serde_json::from_str::<Role>(wire).unwrap(), role);
+            assert_eq!(serde_json::to_string(&role).unwrap(), wire);
+        }
+    }
+
+    #[test]
+    fn an_unrecognised_role_does_not_fail_parsing() {
+        assert_eq!(
+            serde_json::from_str::<Role>("\"JUDGE\"").unwrap(),
+            Role::Unknown
+        );
+    }
+
+    #[test]
+    fn auth_response_matches_the_server_shape() {
+        let parsed: AuthResponse =
+            serde_json::from_str(r#"{"token":"t","username":"alice","role":"ADMIN"}"#).unwrap();
+        assert_eq!(parsed.token, "t");
+        assert_eq!(parsed.username, "alice");
+        assert_eq!(parsed.role, Role::Admin);
+    }
+
+    #[test]
+    fn me_response_allows_a_null_or_missing_role() {
+        let null: MeResponse = serde_json::from_str(r#"{"username":"a","role":null}"#).unwrap();
+        assert_eq!(null.role, None);
+        let missing: MeResponse = serde_json::from_str(r#"{"username":"a"}"#).unwrap();
+        assert_eq!(missing.role, None);
+    }
 }

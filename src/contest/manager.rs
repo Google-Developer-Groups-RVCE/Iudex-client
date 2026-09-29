@@ -105,6 +105,13 @@ impl ContestManager {
         label: &str,
         err: ClientError,
     ) -> Result<T> {
+        // A rejected session is not a network blip. Serving the cache here
+        // would let `submit` judge locally and only then fail on upload, with
+        // the real cause hidden until the very end.
+        if matches!(err, ClientError::Unauthorized(_)) {
+            return Err(err);
+        }
+
         match cache_age(cache_file) {
             Some(age) if age <= self.cache_ttl => {
                 info!(
