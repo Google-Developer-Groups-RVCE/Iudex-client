@@ -23,6 +23,12 @@ pub enum ClientError {
         status_code: Option<u16>,
     },
 
+    /// The server refused the saved session (HTTP 401). Kept apart from
+    /// `ApiError` so callers can tell "log in again" from other failures, and
+    /// so an auth failure is never masked by a cached response.
+    #[error("{0}")]
+    Unauthorized(String),
+
     #[error("Configuration error: {0}")]
     ConfigError(String),
 

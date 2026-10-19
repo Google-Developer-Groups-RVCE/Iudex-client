@@ -29,7 +29,7 @@ The platform follows the client-side judging architectural principle:
 cargo run -- mock-server --port 8080
 
 # 2. Login to the contest server
-cargo run -- login --server http://127.0.0.1:8080 --username alice --password secret
+cargo run -- login --server http://127.0.0.1:8080 --username alice   # prompts for the password
 
 # 3. List available contests
 cargo run -- contests

@@ -143,13 +143,6 @@ impl Language {
         }
     }
 
-    /// Whether the OS-level address-space cap (`RLIMIT_AS`) applies.
-    ///
-    /// False for Java: `RLIMIT_AS` caps virtual address space, not resident
-    /// memory, and a JVM reserves far more address space at startup than it
-    /// ever commits. Capping it does not limit the heap, it stops `java` from
-    /// starting at all. Java is bounded by `-Xmx` in [`Language::execute`]
-    /// instead, which is both portable and what the limit actually means.
     pub fn limit_address_space(self) -> bool {
         !matches!(self, Language::Java)
     }
